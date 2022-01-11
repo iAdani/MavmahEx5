@@ -145,8 +145,8 @@ void myfunction(Image *image, char* srcImgpName, char* blurRsltImgName, char* sh
     register int i, j;          // used in the loops.
     register int position;      // used to "move around" each pixel to sum.
     register int redSum, greenSum, blueSum; // used to sum. it avoids a lot of memory calls of the struct.
-    register pixel curPixel;    // the current pixel to calculate.
-    register pixel p;           // the current neighbour of curPixel.
+    register pixel curPixel;    // the current pixel.
+    register pixel p;           // the current neighbour while doing sum.
 
     /*
     * [1, 1, 1]
@@ -165,7 +165,8 @@ void myfunction(Image *image, char* srcImgpName, char* blurRsltImgName, char* sh
     pixel* pixelsImg = malloc(size);
     pixel* backupOrg = malloc(size);
 
-	if (flag == '1') {
+	if (flag == '1') { //                  @--------------- Filter OFF ---------------@
+
 //                  --------------- blur image ---------------
 //      we do doConvolution's job here instead of calling to function. this applies to all inside-functions used.
 
@@ -347,48 +348,331 @@ void myfunction(Image *image, char* srcImgpName, char* blurRsltImgName, char* sh
         // write result image to file
 		writeBMP(image, srcImgpName, sharpRsltImgName);
 
-	} else {
-		// apply extermum filtered kernel to blur image
-		//doConvolution(image, 3, blurKernel, 7, true);
-        // memcpy is faster than charsToPixels
-        memcpy(pixelsImg, image->data, size);
-        // memcpy is faster than copyPixels
-        memcpy(backupOrg, pixelsImg, size);
-// V
+	} else { //                        @--------------- Filter ON ---------------@
 
-        //smooth(m, backupOrg, pixelsImg, 3, blurKernel, 9, false);
-        int i, j;
-        for (i = 1; i < m - 1; i++) {
-            for (j =  1; j < m - 1; j++) {
-                pixelsImg[CALC_INDEX(i, j, m)] = applyKernel(m, i, j, backupOrg, 3, blurKernel, 7, true); //                       change applyKernel
+        // This section is very similar to the "filter off" section, except it apply the
+        // extermum filtered kernel by finding the max and min intensity.
+        // In the original applyKernel function it happens after blurring, but here it is
+        // already known that the filter is on, so we can do it faster at the same time.
+
+        // These variables are very common in this section, but haven't been used in the previous.
+        register int maxInt, minInt; // used to find the max/min intensity.
+        register int rgbSum;         // used to sum the RGB values for every pixel.
+
+//                  --------------- blur & filter image ---------------
+
+        // just like charsToPixels but faster
+        memcpy(pixelsImg, image->data, size);
+        // just like copyPixels but faster
+        memcpy(backupOrg, pixelsImg, size);
+
+        // As mentioned, these loops are similar to the normal blur from above, but also finding the
+        // min/max intensity. I noticed the same sum of RGB happens 4 times every loop (worst case) so
+        // here it is calculated once for every pixel, using the register variable.
+
+
+        int minRow, minCol, maxRow, maxCol;     // used to find the min/max position
+
+        i = m - 1;
+        while (--i) {               // i is the row
+            j = m - 1;
+            while (--j) {           // j is the column
+                // Note: although the order is 0,0 -> 0,1 -> ... 2,2, i/j are the row/col number of 1,1 - current pixel.
+
+                maxInt = -1; // arbitrary value that is higher than maximum possible intensity, which is 255*3=765
+                minInt = 766;  // arbitrary value that is lower than minimum possible intensity, which is 0
+
+                // calculate current [0][0]
+                position = (i - 1) * m;
+                position += j - 1;
+
+                // backupOrg[0][0]
+                p = backupOrg[position];
+                redSum = p.red;
+                greenSum = p.green;
+                blueSum = p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i - 1;
+                    minCol = j - 1;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i - 1;
+                    maxCol = j - 1;
+                }
+
+                // backupOrg[0][1]
+                p = backupOrg[++position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i - 1;
+                    minCol = j;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i - 1;
+                    maxCol = j;
+                }
+
+                // backupOrg[0][2]
+                p = backupOrg[++position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i - 1;
+                    minCol = j + 1;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i - 1;
+                    maxCol = j + 1;
+                }
+
+                // backupOrg[1][0]
+                position += (m - 2);
+                p = backupOrg[position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i;
+                    minCol = j - 1;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i;
+                    maxCol = j - 1;
+                }
+
+                // backupOrg[1][1]
+                p = backupOrg[++position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i;
+                    minCol = j;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i;
+                    maxCol = j;
+                }
+
+                // backupOrg[1][2]
+                p = backupOrg[++position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i;
+                    minCol = j + 1;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i;
+                    maxCol = j + 1;
+                }
+
+                // backupOrg[2][0]
+                position += (m - 2);
+                p = backupOrg[position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i + 1;
+                    minCol = j - 1;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i + 1;
+                    maxCol = j - 1;
+                }
+
+                // backupOrg[2][1]
+                p = backupOrg[++position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i + 1;
+                    minCol = j;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i + 1;
+                    maxCol = j;
+                }
+
+                // backupOrg[2][2]
+                p = backupOrg[++position];
+                redSum += p.red;
+                greenSum += p.green;
+                blueSum += p.blue;
+
+                // check for min/max intensity
+                rgbSum = ((int)p.red) + ((int)p.green) + ((int)p.blue);
+                if (rgbSum <= minInt) {
+                    minInt = rgbSum;
+                    minRow = i + 1;
+                    minCol = j + 1;
+                }
+                if (rgbSum > maxInt) {
+                    maxInt = rgbSum;
+                    maxRow = i + 1;
+                    maxCol = j + 1;
+                }
+
+                // filter the min/max
+                pixel calcIndex = backupOrg[CALC_INDEX(minRow, minCol, m)];
+                redSum -= ((int)calcIndex.red);
+                greenSum -= ((int)calcIndex.green);
+                blueSum -= ((int)calcIndex.blue);
+
+                calcIndex = backupOrg[CALC_INDEX(maxRow, maxCol, m)];
+                redSum -= ((int)calcIndex.red);
+                greenSum -= ((int)calcIndex.green);
+                blueSum -= ((int)calcIndex.blue);
+
+                // The kernel scale is 7, so there's a division for each sum.
+                curPixel.red = (unsigned char)(MIN(MAX(redSum / 7, 0), 255));
+                curPixel.green = (unsigned char)(MIN(MAX(greenSum / 7, 0), 255));
+                curPixel.blue = (unsigned char)(MIN(MAX(blueSum / 7, 0), 255));
+
+                pixelsImg[CALC_INDEX(i, j, m)] = curPixel;
             }
         }
 
-        //pixelsToChars(pixelsImg, image);
-        // memcpy is faster than pixelsToChar
+        // just like pixelsToChar but faster
         memcpy(image->data, pixelsImg, size);
+
 		// write result image to file
 		writeBMP(image, srcImgpName, filteredBlurRsltImgName);
 
-		// sharpen the resulting image
+//              --------------- sharpen the resulting image ---------------
 
-		//doConvolution(image, 3, sharpKernel, 1, false);
-// memcpy is faster than charsToPixels
+//      Exactly the same as the "filter off" sharp!
+
+        // just like charsToPixels but faster
         memcpy(pixelsImg, image->data, size);
-
-        // memcpy is faster than copyPixels
+        // just like copyPixels but faster
         memcpy(backupOrg, pixelsImg, size);
 
-        //smooth(m, backupOrg, pixelsImg, 3, sharpKernel, 1, false);
-        for (i = 1; i < m - 1; i++) {
-            for (j =  1; j < m - 1; j++) {
-                pixelsImg[CALC_INDEX(i, j, m)] = applyKernel(m, i, j, backupOrg, 3, sharpKernel, 1, false); //                       change applyKernel
+        // just like the smooth function from blur, but with the sharp matrix.
+        i = m - 1;
+        while (--i) {
+            j = m - 1;
+            while (--j) {
+
+                // calculate current [0][0]
+                position = (i - 1) * m;
+                position += j - 1;
+
+                // backupOrg[0][0]
+                p = backupOrg[position];
+                redSum = - p.red;
+                greenSum = - p.green;
+                blueSum = - p.blue;
+
+                // backupOrg[0][1]
+                p = backupOrg[++position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // backupOrg[0][2]
+                p = backupOrg[++position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // backupOrg[1][0]
+                position += (m - 2);
+                p = backupOrg[position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // backupOrg[1][1]
+                p = backupOrg[++position];
+                redSum += 9 * p.red;
+                greenSum += 9 * p.green;
+                blueSum += 9 * p.blue;
+
+                // backupOrg[1][2]
+                p = backupOrg[++position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // backupOrg[2][0]
+                position += (m - 2);
+                p = backupOrg[position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // backupOrg[2][1]
+                p = backupOrg[++position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // backupOrg[2][2]
+                p = backupOrg[++position];
+                redSum -= p.red;
+                greenSum -= p.green;
+                blueSum -= p.blue;
+
+                // Here the scale is 1 so no need to divide.
+                curPixel.red = (unsigned char)(MIN(MAX(redSum, 0), 255));
+                curPixel.green = (unsigned char)(MIN(MAX(greenSum, 0), 255));
+                curPixel.blue = (unsigned char)(MIN(MAX(blueSum, 0), 255));
+
+                pixelsImg[CALC_INDEX(i, j, m)] = curPixel;
             }
         }
 
         //pixelsToChars(pixelsImg, image);
-        // memcpy is faster than pixelsToChar
+        // just like pixelsToChar but faster
         memcpy(image->data, pixelsImg, size);
+
 		// write result image to file
 		writeBMP(image, srcImgpName, filteredSharpRsltImgName);
 	}
